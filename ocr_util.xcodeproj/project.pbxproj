@@ -13,6 +13,7 @@
 /* Begin PBXFileReference section */
 		0304F4A22ECE27E30069A53E /* ocr_util.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ocr_util.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0306D4DF2EDA538D00787CCD /* paddleocr-cli-dir */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "paddleocr-cli-dir"; path = "OCRAssets/ocr/paddleocr/paddleocr-cli-dir"; sourceTree = "<group>"; };
+		0306D4E12EDA600000787CCD /* ocr_util.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ocr_util.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -61,6 +62,7 @@
 				0304F49E2ECE27E30069A53E /* Sources */,
 				0304F49F2ECE27E30069A53E /* Frameworks */,
 				0304F4A02ECE27E30069A53E /* Resources */,
+				0306D4E22EDA600000787CCD /* Sign paddleocr-cli */,
 			);
 			buildRules = (
 			);
@@ -130,6 +132,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		0306D4E22EDA600000787CCD /* Sign paddleocr-cli */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/paddleocr-cli-dir/paddleocr-cli",
+				"$(SRCROOT)/ocr_util/ocr_util.entitlements",
+			);
+			name = "Sign paddleocr-cli";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Sign paddleocr-cli executable with app sandbox entitlement\nPADDLEOCR_CLI=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/paddleocr-cli-dir/paddleocr-cli\"\nENTITLEMENTS=\"${SRCROOT}/ocr_util/ocr_util.entitlements\"\n\nif [ -f \"${PADDLEOCR_CLI}\" ]; then\n    echo \"Signing paddleocr-cli with entitlements...\"\n    if [ -n \"${CODE_SIGN_IDENTITY}\" ] && [ \"${CODE_SIGN_IDENTITY}\" != \"-\" ]; then\n        codesign --force --sign \"${CODE_SIGN_IDENTITY}\" --entitlements \"${ENTITLEMENTS}\" --timestamp=none \"${PADDLEOCR_CLI}\"\n        if [ $? -eq 0 ]; then\n            echo \"Successfully signed paddleocr-cli\"\n        else\n            echo \"Warning: Failed to sign paddleocr-cli\"\n        fi\n    else\n        echo \"Warning: CODE_SIGN_IDENTITY not set, skipping code signing\"\n        # Still apply entitlements using adhoc signing\n        codesign --force --sign - --entitlements \"${ENTITLEMENTS}\" --timestamp=none \"${PADDLEOCR_CLI}\" 2>/dev/null || true\n    fi\nelse\n    echo \"Warning: paddleocr-cli not found at ${PADDLEOCR_CLI}\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		0304F4AB2ECE27E40069A53E /* Debug */ = {
@@ -258,6 +284,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = ocr_util/ocr_util.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -304,6 +331,7 @@
 				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = ocr_util/ocr_util.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
