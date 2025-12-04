@@ -23,6 +23,7 @@ struct IntroView: View {
                 Text("• Use the hot key (⌘⌥/) to start a capture from anywhere.")
                 Text("• Draw a bounding box around the text you want to copy and ocr_util will run OCR and put the result on your clipboard.")
                 Text("• The first time you capture, macOS will show a Screen Recording dialog that says ocr_util is requesting to bypass the system private window picker and directly access your screen (and possibly audio). This is a system privacy check from Apple.")
+                Text("• After granting permission, you will need to redraw the bounding box for the capture to complete.")
             }
             
             Text("ocr_util only uses this permission to read the pixels inside the box you draw so it can extract text. It does not record or save video or audio.")

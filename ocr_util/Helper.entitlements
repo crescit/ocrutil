@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <!-- Inherit parent's sandbox profile instead of creating a new one -->
+    <!-- This is recommended for embedded command-line tools in sandboxed apps -->
+    <key>com.apple.security.inherit</key>
+    <true/>
+    <!-- Allow JIT compilation for Python/PyInstaller executables -->
+    <!-- <key>com.apple.security.cs.allow-jit</key>
+    <true/> -->
+    <!-- Allow unsigned executable memory for Python bytecode execution -->
+    <!-- <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/> -->
+    <!-- Disable library validation to allow loading Python libraries -->
+    <!-- <key>com.apple.security.cs.disable-library-validation</key>
+    <true/> -->
+    <!-- Allow reading user-selected files (if user selects an image file) -->
+    <!-- <key>com.apple.security.files.user-selected.read-only</key>
+    <true/> -->
+    <!-- Note: Files in the app's container directory (Application Support/OCR_Temp) -->
+    <!-- are accessible to subprocesses in the same container automatically -->
+    <!-- Note: Subprocesses automatically have read access to the app bundle -->
+    <!-- Note: UserNotifications errors (hasError: 1) are from the main app, not the helper. -->
+    <!-- UserNotifications doesn't require a special entitlement - it's configured via Info.plist -->
+</dict>
+</plist>
+
