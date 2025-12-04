@@ -36,8 +36,21 @@ final class PaddleOCRService: OCRService {
         // Fallback to system temp (may not work for subprocesses)
         return FileManager.default.temporaryDirectory
     }
+    
+    // Writable directory for OCR resources (fonts, models cache, etc.)
+    // This is needed because the app bundle is read-only in sandboxed apps
+    private var ocrResourcesDir: URL {
+        if let containerURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let resourcesDir = containerURL.appendingPathComponent("OCR_Resources", isDirectory: true)
+            // Create directory if it doesn't exist
+            try? FileManager.default.createDirectory(at: resourcesDir, withIntermediateDirectories: true)
+            return resourcesDir
+        }
+        return tempDir
+    }
     private var isRunningOCR = false
     private let loadingCursor = LoadingCursorOverlay()
+    private var pythonPatchDirectory: URL?
 
     // MARK: - Paths
 
@@ -149,6 +162,14 @@ final class PaddleOCRService: OCRService {
         let workingDir = bin.deletingLastPathComponent()
         let internalDir = workingDir.appendingPathComponent("_internal", isDirectory: true)
         
+        // Prepare fonts in writable location to avoid sandbox write errors
+        // This improves OCR performance by avoiding failed font copy operations
+        try prepareFonts(in: internalDir)
+        
+        // Set up Python patch to redirect font operations (if possible)
+        // Note: This may not work with PyInstaller, but it's worth trying
+        try? setupPythonPatch()
+        
         // Verify _internal directory exists and is accessible BEFORE creating process
         let fm = FileManager.default
         DebugLogger.log("🔍 PaddleOCR: Checking _internal directory...")
@@ -180,6 +201,27 @@ final class PaddleOCRService: OCRService {
         environment["PYINSTALLER_BOOTLOADER"] = "1"
         // Set _MEIPASS to the _internal directory (PyInstaller uses this)
         environment["_MEIPASS"] = internalDir.path
+        
+        // Set environment variables to help RapidOCR find fonts and avoid write errors
+        // RapidOCR may check these locations or use them as fallbacks
+        let writableModelsDir = ocrResourcesDir.appendingPathComponent("rapidocr/models", isDirectory: true)
+        if FileManager.default.fileExists(atPath: writableModelsDir.path) {
+            // Set various environment variables that RapidOCR might respect
+            // Note: These may not be directly used by RapidOCR, but setting them
+            // ensures fonts are available in writable locations as fallbacks
+            environment["RAPIDOCR_MODELS_DIR"] = writableModelsDir.path
+            environment["RAPIDOCR_FONT_DIR"] = writableModelsDir.path
+            DebugLogger.log("🔧 PaddleOCR: Set RAPIDOCR_MODELS_DIR to \(writableModelsDir.path)")
+        }
+        
+        // Add Python patch directory to PYTHONPATH if we set it up
+        if let pythonPatchDir = pythonPatchDirectory, FileManager.default.fileExists(atPath: pythonPatchDir.path) {
+            let currentPythonPath = environment["PYTHONPATH"] ?? ""
+            let newPythonPath = currentPythonPath.isEmpty ? pythonPatchDir.path : "\(pythonPatchDir.path):\(currentPythonPath)"
+            environment["PYTHONPATH"] = newPythonPath
+            DebugLogger.log("🔧 PaddleOCR: Added Python patch directory to PYTHONPATH: \(pythonPatchDir.path)")
+        }
+        
         process.environment = environment
 
         let stdout = Pipe()
@@ -333,7 +375,31 @@ final class PaddleOCRService: OCRService {
             throw PaddleOCRError.outputDecodingFailed
         }
 
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Preserve newlines - only trim leading/trailing whitespace (spaces and tabs), not newlines
+        // This ensures multi-line text from OCR is preserved correctly
+        // Create a character set with only spaces and tabs (not newlines)
+        let spacesAndTabs = CharacterSet.whitespaces.subtracting(CharacterSet.newlines)
+        var trimmed = output.trimmingCharacters(in: spacesAndTabs)
+        
+        // Optionally remove a single leading/trailing newline if present, but preserve internal newlines
+        if trimmed.hasPrefix("\n") {
+            trimmed = String(trimmed.dropFirst())
+        }
+        if trimmed.hasPrefix("\r\n") {
+            trimmed = String(trimmed.dropFirst(2))
+        } else if trimmed.hasPrefix("\r") {
+            trimmed = String(trimmed.dropFirst())
+        }
+        if trimmed.hasSuffix("\n") {
+            trimmed = String(trimmed.dropLast())
+        }
+        if trimmed.hasSuffix("\r\n") {
+            trimmed = String(trimmed.dropLast(2))
+        } else if trimmed.hasSuffix("\r") {
+            trimmed = String(trimmed.dropLast())
+        }
+        
+        return trimmed
     }
 
     // MARK: - OCRService
@@ -386,9 +452,11 @@ final class PaddleOCRService: OCRService {
                     DebugLogger.log("🧹 PaddleOCR: Cleaned up temp file")
                 }
                 
-                let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let ocrResult = OCRResult(text: trimmed, markdown: nil)
-                DebugLogger.log("✅ PaddleOCR: recognize() completed successfully, text length: \(trimmed.count)")
+                // Preserve newlines - only trim leading/trailing whitespace, not internal newlines
+                // This ensures multi-line text from OCR is preserved correctly
+                // rawText is already trimmed by runOCR(), so we can use it directly
+                let ocrResult = OCRResult(text: rawText, markdown: nil)
+                DebugLogger.log("✅ PaddleOCR: recognize() completed successfully, text length: \(rawText.count)")
 
                 // Call completion on main thread to ensure thread safety
                 Task { @MainActor in
@@ -419,6 +487,125 @@ final class PaddleOCRService: OCRService {
     }
 
     // MARK: - Helpers
+    
+    /// Prepares fonts in a writable location to avoid sandbox write errors.
+    /// RapidOCR tries to copy fonts to the models directory, but the app bundle is read-only.
+    /// This method copies fonts to a writable location that mirrors the expected structure.
+    private func prepareFonts(in internalDir: URL) throws {
+        let fm = FileManager.default
+        
+        // Find the bundled font location
+        let fontCandidates = [
+            internalDir.appendingPathComponent("rapidocr/resources/fonts/FZYTK.TTF"),
+            internalDir.appendingPathComponent("rapidocr/resources/fonts/fzyttk.ttf"),
+            internalDir.appendingPathComponent("resources/fonts/FZYTK.TTF"),
+        ]
+        
+        guard let bundledFontURL = fontCandidates.first(where: { fm.fileExists(atPath: $0.path) }) else {
+            DebugLogger.log("⚠️ PaddleOCR: Bundled font not found, OCR may have reduced performance")
+            return
+        }
+        
+        DebugLogger.log("🔍 PaddleOCR: Found bundled font at: \(bundledFontURL.path)")
+        
+        // Create writable models directory in container for fonts
+        // RapidOCR expects fonts in: _internal/rapidocr/models/FZYTK.TTF
+        // We'll create a writable mirror structure
+        let writableModelsDir = ocrResourcesDir.appendingPathComponent("rapidocr/models", isDirectory: true)
+        try? fm.createDirectory(at: writableModelsDir, withIntermediateDirectories: true)
+        
+        // Copy font to writable location if needed
+        let writableFontURL = writableModelsDir.appendingPathComponent("FZYTK.TTF")
+        
+        let needsCopy: Bool
+        if fm.fileExists(atPath: writableFontURL.path) {
+            // Check if bundled font is newer or different
+            if let bundledAttrs = try? fm.attributesOfItem(atPath: bundledFontURL.path),
+               let writableAttrs = try? fm.attributesOfItem(atPath: writableFontURL.path),
+               let bundledSize = bundledAttrs[.size] as? Int64,
+               let writableSize = writableAttrs[.size] as? Int64,
+               bundledSize == writableSize {
+                // Font already exists and sizes match, skip copy
+                needsCopy = false
+            } else {
+                needsCopy = true
+            }
+        } else {
+            needsCopy = true
+        }
+        
+        if needsCopy {
+            do {
+                // Remove old font if it exists
+                if fm.fileExists(atPath: writableFontURL.path) {
+                    try fm.removeItem(at: writableFontURL)
+                }
+                // Copy font to writable location
+                try fm.copyItem(at: bundledFontURL, to: writableFontURL)
+                DebugLogger.log("✅ PaddleOCR: Copied font to writable location: \(writableFontURL.path)")
+            } catch {
+                DebugLogger.log("⚠️ PaddleOCR: Failed to copy font to writable location: \(error)")
+                // Non-fatal, OCR will use bundled font directly
+            }
+        } else {
+            DebugLogger.log("✅ PaddleOCR: Font already in writable location")
+        }
+        
+        // Also try to set up a user home directory override for RapidOCR's font cache
+        // RapidOCR may look for fonts in ~/.rapidocr or similar locations
+        if let homeDir = ProcessInfo.processInfo.environment["HOME"] {
+            let rapidOcrHome = URL(fileURLWithPath: homeDir).appendingPathComponent(".rapidocr", isDirectory: true)
+            let rapidOcrModels = rapidOcrHome.appendingPathComponent("models", isDirectory: true)
+            try? fm.createDirectory(at: rapidOcrModels, withIntermediateDirectories: true)
+            
+            let homeFontURL = rapidOcrModels.appendingPathComponent("FZYTK.TTF")
+            if !fm.fileExists(atPath: homeFontURL.path) {
+                try? fm.copyItem(at: bundledFontURL, to: homeFontURL)
+                DebugLogger.log("✅ PaddleOCR: Also copied font to user home cache: \(homeFontURL.path)")
+            }
+        }
+    }
+    
+    /// Sets up a Python patch script to redirect RapidOCR font operations.
+    /// This copies a patch script to a writable location and prepares it for injection.
+    private func setupPythonPatch() throws {
+        let fm = FileManager.default
+        
+        // Create patch directory in container
+        let patchDir = ocrResourcesDir.appendingPathComponent("python_patch", isDirectory: true)
+        try? fm.createDirectory(at: patchDir, withIntermediateDirectories: true)
+        
+        // Copy patch script from bundle if it exists
+        if let bundlePatchURL = Bundle.main.url(forResource: "rapidocr_font_patch", withExtension: "py") {
+            let containerPatchURL = patchDir.appendingPathComponent("rapidocr_font_patch.py")
+            
+            // Only copy if it doesn't exist or is different
+            let needsCopy: Bool
+            if fm.fileExists(atPath: containerPatchURL.path) {
+                if let bundleAttrs = try? fm.attributesOfItem(atPath: bundlePatchURL.path),
+                   let containerAttrs = try? fm.attributesOfItem(atPath: containerPatchURL.path),
+                   let bundleSize = bundleAttrs[.size] as? Int64,
+                   let containerSize = containerAttrs[.size] as? Int64,
+                   bundleSize == containerSize {
+                    needsCopy = false
+                } else {
+                    needsCopy = true
+                }
+            } else {
+                needsCopy = true
+            }
+            
+            if needsCopy {
+                try? fm.removeItem(at: containerPatchURL)
+                try fm.copyItem(at: bundlePatchURL, to: containerPatchURL)
+                DebugLogger.log("✅ PaddleOCR: Copied Python patch script to: \(containerPatchURL.path)")
+            }
+            
+            pythonPatchDirectory = patchDir
+        } else {
+            DebugLogger.log("⚠️ PaddleOCR: Python patch script not found in bundle, skipping patch setup")
+        }
+    }
     
     private func getSignalName(_ signal: Int32) -> String {
         switch signal {
