@@ -6,27 +6,18 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0306D4E02EDA538D00787CCD /* paddleocr-cli-dir in Resources */ = {isa = PBXBuildFile; fileRef = 0306D4DF2EDA538D00787CCD /* paddleocr-cli-dir */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		0304F4A22ECE27E30069A53E /* ocr_util.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ocr_util.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0306D4DF2EDA538D00787CCD /* paddleocr-cli-dir */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "paddleocr-cli-dir"; path = "OCRAssets/ocr/paddleocr/paddleocr-cli-dir"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		0306D0652EDA4CC200787CCD /* Exceptions for "ocr_util" folder in "ocr_util" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Assets.xcassets,
-			);
-			target = 0304F4A12ECE27E30069A53E /* ocr_util */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0304F4A42ECE27E30069A53E /* ocr_util */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				0306D0652EDA4CC200787CCD /* Exceptions for "ocr_util" folder in "ocr_util" target */,
-			);
 			path = ocr_util;
 			sourceTree = "<group>";
 		};
@@ -70,7 +61,6 @@
 				0304F49E2ECE27E30069A53E /* Sources */,
 				0304F49F2ECE27E30069A53E /* Frameworks */,
 				0304F4A02ECE27E30069A53E /* Resources */,
-				0306D4E32EDA538F00787CCD /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -125,33 +115,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0306D4E02EDA538D00787CCD /* paddleocr-cli-dir in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		0306D4E32EDA538F00787CCD /* ShellScript */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/OCRAssets/ocr/paddleocr/paddleocr-cli-dir",
-			);
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/paddleocr-cli-dir",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "echo \"🔧 Shell script phase starting...\"\necho \"SRCROOT: ${SRCROOT}\"\necho \"BUILT_PRODUCTS_DIR: ${BUILT_PRODUCTS_DIR}\"\necho \"CONTENTS_FOLDER_PATH: ${CONTENTS_FOLDER_PATH}\"\n\nSOURCE_DIR=\"${SRCROOT}/OCRAssets/ocr/paddleocr/paddleocr-cli-dir\"\nDEST_DIR=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources\"\nDEST_PATH=\"${DEST_DIR}/paddleocr-cli-dir\"\n\necho \"Source: ${SOURCE_DIR}\"\necho \"Destination: ${DEST_PATH}\"\n\nif [ ! -d \"${SOURCE_DIR}\" ]; then\n    echo \"❌ Error: Source directory not found at ${SOURCE_DIR}\"\n    exit 1\nfi\n\nmkdir -p \"${DEST_DIR}\"\nrm -rf \"${DEST_PATH}\"\necho \"📦 Copying paddleocr-cli-dir...\"\ncp -R \"${SOURCE_DIR}\" \"${DEST_DIR}/\"\nchmod +x \"${DEST_PATH}/paddleocr-cli\" 2>/dev/null || true\n\nif [ -x \"${DEST_PATH}/paddleocr-cli\" ]; then\n    echo \"✅ Successfully copied paddleocr-cli-dir (executable found)\"\nelse\n    echo \"⚠️  Warning: Executable not found or not executable at ${DEST_PATH}/paddleocr-cli\"\n    ls -la \"${DEST_PATH}/\" || echo \"Directory listing failed\"\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0304F49E2ECE27E30069A53E /* Sources */ = {
@@ -289,6 +257,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -332,7 +301,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=macosx*]" = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;

@@ -18,15 +18,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotkeySettingsWindowController: HotkeySettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Menu bar only (no Dock)
-        NSApp.setActivationPolicy(.accessory)
-
         // Ensure logger is initialized so log directory exists early
         DebugLogger.log("📒 ocr_util launched (version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"))")
 
         showFirstRunIntroIfNeeded()
         setupStatusItem()
         setupCapturePipeline()
+        
+        // Delay setting activation policy to allow launch icon to show
+        // Menu bar only (no Dock)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     /// Shows a one-time intro explaining how the tool works and what system
