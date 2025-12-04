@@ -23,9 +23,19 @@ final class PaddleOCRService: OCRService {
     static let shared = PaddleOCRService()
     private init() {}
 
-    // Use the container's temp directory
-    // In sandboxed apps, subprocesses should be able to read files created by the parent process
-    private let tempDir = FileManager.default.temporaryDirectory
+    // Use the app's container directory instead of system temp
+    // This ensures sandboxed subprocesses can access files created by the parent process
+    private var tempDir: URL {
+        // Use the app's container directory which subprocesses can access
+        if let containerURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let ocrTempDir = containerURL.appendingPathComponent("OCR_Temp", isDirectory: true)
+            // Create directory if it doesn't exist
+            try? FileManager.default.createDirectory(at: ocrTempDir, withIntermediateDirectories: true)
+            return ocrTempDir
+        }
+        // Fallback to system temp (may not work for subprocesses)
+        return FileManager.default.temporaryDirectory
+    }
     private var isRunningOCR = false
     private let loadingCursor = LoadingCursorOverlay()
 
@@ -137,6 +147,28 @@ final class PaddleOCRService: OCRService {
         // Set working directory to the executable's directory
         // This ensures PyInstaller can find the _internal directory
         let workingDir = bin.deletingLastPathComponent()
+        let internalDir = workingDir.appendingPathComponent("_internal", isDirectory: true)
+        
+        // Verify _internal directory exists and is accessible BEFORE creating process
+        let fm = FileManager.default
+        DebugLogger.log("🔍 PaddleOCR: Checking _internal directory...")
+        if !fm.fileExists(atPath: internalDir.path) {
+            DebugLogger.log("❌ PaddleOCR: _internal directory not found at \(internalDir.path)")
+            throw PaddleOCRError.processFailed(code: -1, stderr: "_internal directory not found")
+        } else {
+            DebugLogger.log("✅ PaddleOCR: _internal directory found at \(internalDir.path)")
+            // Check if we can list contents (tests read access)
+            do {
+                let contents = try fm.contentsOfDirectory(atPath: internalDir.path)
+                DebugLogger.log("   Directory contains \(contents.count) items")
+                // Log first few items for debugging
+                let sampleItems = contents.prefix(5)
+                DebugLogger.log("   Sample items: \(sampleItems.joined(separator: ", "))")
+            } catch {
+                DebugLogger.log("⚠️ PaddleOCR: Cannot read _internal directory contents: \(error)")
+                DebugLogger.log("   This may indicate a sandbox permission issue")
+            }
+        }
         
         let process = Process()
         process.executableURL = bin
@@ -147,7 +179,6 @@ final class PaddleOCRService: OCRService {
         var environment = ProcessInfo.processInfo.environment
         environment["PYINSTALLER_BOOTLOADER"] = "1"
         // Set _MEIPASS to the _internal directory (PyInstaller uses this)
-        let internalDir = workingDir.appendingPathComponent("_internal", isDirectory: true)
         environment["_MEIPASS"] = internalDir.path
         process.environment = environment
 
@@ -160,22 +191,141 @@ final class PaddleOCRService: OCRService {
         DebugLogger.log("🚀 PaddleOCR: Working directory: \(workingDir.path)")
         DebugLogger.log("🚀 PaddleOCR: Image path: \(imageURL.path)")
         DebugLogger.log("🚀 PaddleOCR: Environment _MEIPASS: \(environment["_MEIPASS"] ?? "not set")")
+        
+        // Verify executable exists and is executable
+        if !fm.fileExists(atPath: bin.path) {
+            DebugLogger.log("❌ PaddleOCR: Executable does not exist at \(bin.path)")
+            throw PaddleOCRError.binaryNotFound
+        }
+        if !fm.isExecutableFile(atPath: bin.path) {
+            DebugLogger.log("❌ PaddleOCR: Executable is not executable at \(bin.path)")
+            throw PaddleOCRError.binaryNotFound
+        }
+        
+        // Check code signature and entitlements
+        let codesignTask = Process()
+        codesignTask.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        codesignTask.arguments = ["-d", "--entitlements", "-", bin.path]
+        let codesignPipe = Pipe()
+        codesignTask.standardOutput = codesignPipe
+        codesignTask.standardError = Pipe()
+        try? codesignTask.run()
+        codesignTask.waitUntilExit()
+        if codesignTask.terminationStatus == 0 {
+            let codesignData = codesignPipe.fileHandleForReading.readDataToEndOfFile()
+            if let codesignOutput = String(data: codesignData, encoding: .utf8), !codesignOutput.isEmpty {
+                DebugLogger.log("📋 PaddleOCR: Executable entitlements:")
+                DebugLogger.log(codesignOutput)
+            }
+        }
 
-        try process.run()
+        do {
+            try process.run()
+            DebugLogger.log("✅ PaddleOCR: Process launched successfully")
+        } catch {
+            DebugLogger.log("❌ PaddleOCR: Failed to launch process: \(error)")
+            DebugLogger.log("   Error details: \(error.localizedDescription)")
+            if let nsError = error as NSError? {
+                DebugLogger.log("   Domain: \(nsError.domain)")
+                DebugLogger.log("   Code: \(nsError.code)")
+                DebugLogger.log("   UserInfo: \(nsError.userInfo)")
+            }
+            throw PaddleOCRError.processFailed(code: -1, stderr: "Failed to launch process: \(error.localizedDescription)")
+        }
+        
         process.waitUntilExit()
 
         let status = process.terminationStatus
+        let terminationReason = process.terminationReason
         let outData = stdout.fileHandleForReading.readDataToEndOfFile()
         let errData = stderr.fileHandleForReading.readDataToEndOfFile()
         
-        // Debug: Print stderr for troubleshooting
-        if let errString = String(data: errData, encoding: .utf8), !errString.isEmpty {
-            DebugLogger.log("📋 PaddleOCR stderr output:")
+        // Always log process termination details for debugging
+        DebugLogger.log("📊 PaddleOCR: Process terminated")
+        DebugLogger.log("   Exit code: \(status)")
+        if terminationReason == .exit {
+            DebugLogger.log("   Termination reason: normal exit")
+        } else {
+            // For signal termination, calculate the signal number
+            // macOS reports signal termination as exit code = 128 + signal number
+            // But sometimes it's just the signal number directly
+            let signalNumber: Int32
+            if status > 128 {
+                signalNumber = status - 128
+            } else if status > 0 && status < 32 {
+                signalNumber = status
+            } else {
+                signalNumber = -1 // unknown
+            }
+            DebugLogger.log("   Termination reason: uncaught signal")
+            if signalNumber > 0 {
+                let signalName = getSignalName(signalNumber)
+                DebugLogger.log("   Signal number: \(signalNumber) (\(signalName))")
+            } else {
+                DebugLogger.log("   Signal number: unknown (exit code: \(status))")
+            }
+        }
+        
+        // Log stdout (even if empty)
+        let outString = String(data: outData, encoding: .utf8) ?? "<could not decode stdout>"
+        DebugLogger.log("📋 PaddleOCR stdout output (\(outData.count) bytes):")
+        if outString.isEmpty {
+            DebugLogger.log("   (empty)")
+        } else {
+            DebugLogger.log(outString)
+        }
+        
+        // Log stderr (even if empty)
+        let errString = String(data: errData, encoding: .utf8) ?? "<could not decode stderr>"
+        DebugLogger.log("📋 PaddleOCR stderr output (\(errData.count) bytes):")
+        if errString.isEmpty {
+            DebugLogger.log("   (empty)")
+        } else {
             DebugLogger.log(errString)
+        }
+        
+        // Log additional process info for debugging
+        DebugLogger.log("📋 PaddleOCR process details:")
+        DebugLogger.log("   Executable: \(bin.path)")
+        DebugLogger.log("   Arguments: \(process.arguments?.joined(separator: " ") ?? "none")")
+        DebugLogger.log("   Working directory: \(workingDir.path)")
+        if let env = process.environment {
+            DebugLogger.log("   Environment variables:")
+            for (key, value) in env.sorted(by: { $0.key < $1.key }) {
+                DebugLogger.log("     \(key)=\(value)")
+            }
         }
 
         if status != 0 {
             let err = String(data: errData, encoding: .utf8) ?? ""
+            DebugLogger.log("❌ PaddleOCR: Process failed with exit code \(status)")
+            DebugLogger.log("   stderr: \(err.isEmpty ? "(empty)" : err)")
+            
+            // For signal termination, provide more specific error message
+            if terminationReason != .exit {
+                let signalNumber: Int32
+                if status > 128 {
+                    signalNumber = status - 128
+                } else if status > 0 && status < 32 {
+                    signalNumber = status
+                } else {
+                    signalNumber = -1
+                }
+                
+                if signalNumber == 5 {
+                    DebugLogger.log("⚠️ PaddleOCR: Process killed by SIGTRAP (signal 5)")
+                    DebugLogger.log("   This often indicates a sandbox violation or missing entitlements")
+                    DebugLogger.log("   Check Console.app for sandbox 'deny' messages")
+                    DebugLogger.log("   Verify the executable is signed with Helper.entitlements")
+                } else if signalNumber == 9 {
+                    DebugLogger.log("⚠️ PaddleOCR: Process killed by SIGKILL (signal 9)")
+                    DebugLogger.log("   This usually indicates the sandbox killed the process")
+                } else if signalNumber == 11 {
+                    DebugLogger.log("⚠️ PaddleOCR: Process killed by SIGSEGV (signal 11)")
+                    DebugLogger.log("   This indicates a segmentation fault - possible library loading issue")
+                }
+            }
+            
             throw PaddleOCRError.processFailed(code: status, stderr: err)
         }
 
@@ -269,6 +419,27 @@ final class PaddleOCRService: OCRService {
     }
 
     // MARK: - Helpers
+    
+    private func getSignalName(_ signal: Int32) -> String {
+        switch signal {
+        case 1: return "SIGHUP"
+        case 2: return "SIGINT"
+        case 3: return "SIGQUIT"
+        case 4: return "SIGILL"
+        case 5: return "SIGTRAP"
+        case 6: return "SIGABRT"
+        case 7: return "SIGEMT"
+        case 8: return "SIGFPE"
+        case 9: return "SIGKILL"
+        case 10: return "SIGBUS"
+        case 11: return "SIGSEGV"
+        case 12: return "SIGSYS"
+        case 13: return "SIGPIPE"
+        case 14: return "SIGALRM"
+        case 15: return "SIGTERM"
+        default: return "SIG\(signal)"
+        }
+    }
 
     private func prepareImageFile(from screenshot: Screenshot) throws -> (URL, Bool) {
         if let existingURL = screenshot.fileURL {

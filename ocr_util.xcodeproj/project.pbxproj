@@ -13,7 +13,6 @@
 /* Begin PBXFileReference section */
 		0304F4A22ECE27E30069A53E /* ocr_util.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ocr_util.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0306D4DF2EDA538D00787CCD /* paddleocr-cli-dir */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "paddleocr-cli-dir"; path = "OCRAssets/ocr/paddleocr/paddleocr-cli-dir"; sourceTree = "<group>"; };
-		0306D4E12EDA600000787CCD /* ocr_util.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ocr_util.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -123,16 +122,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXSourcesBuildPhase section */
-		0304F49E2ECE27E30069A53E /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXSourcesBuildPhase section */
-
 /* Begin PBXShellScriptBuildPhase section */
 		0306D4E22EDA600000787CCD /* Sign paddleocr-cli */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -143,19 +132,33 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/paddleocr-cli-dir/paddleocr-cli",
-				"$(SRCROOT)/ocr_util/ocr_util.entitlements",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/paddleocr-cli-dir/paddleocr-cli",
+				"$(SRCROOT)/ocr_util/Helper.entitlements",
 			);
 			name = "Sign paddleocr-cli";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Contents/Resources/paddleocr-cli-dir/paddleocr-cli",
+				"$(ARCHIVE_PRODUCTS_PATH)/Applications/$(PRODUCT_NAME).app/Contents/Resources/paddleocr-cli-dir/paddleocr-cli",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Contents/Resources/paddleocr-cli-dir/",
+				"$(ARCHIVE_PRODUCTS_PATH)/Applications/$(PRODUCT_NAME).app/Contents/Resources/paddleocr-cli-dir/",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Sign paddleocr-cli executable with app sandbox entitlement\nPADDLEOCR_CLI=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/paddleocr-cli-dir/paddleocr-cli\"\nENTITLEMENTS=\"${SRCROOT}/ocr_util/ocr_util.entitlements\"\n\nif [ -f \"${PADDLEOCR_CLI}\" ]; then\n    echo \"Signing paddleocr-cli with entitlements...\"\n    if [ -n \"${CODE_SIGN_IDENTITY}\" ] && [ \"${CODE_SIGN_IDENTITY}\" != \"-\" ]; then\n        codesign --force --sign \"${CODE_SIGN_IDENTITY}\" --entitlements \"${ENTITLEMENTS}\" --timestamp=none \"${PADDLEOCR_CLI}\"\n        if [ $? -eq 0 ]; then\n            echo \"Successfully signed paddleocr-cli\"\n        else\n            echo \"Warning: Failed to sign paddleocr-cli\"\n        fi\n    else\n        echo \"Warning: CODE_SIGN_IDENTITY not set, skipping code signing\"\n        # Still apply entitlements using adhoc signing\n        codesign --force --sign - --entitlements \"${ENTITLEMENTS}\" --timestamp=none \"${PADDLEOCR_CLI}\" 2>/dev/null || true\n    fi\nelse\n    echo \"Warning: paddleocr-cli not found at ${PADDLEOCR_CLI}\"\nfi\n";
+			shellScript = "set -e\n\nENTITLEMENTS=\"$SRCROOT/ocr_util/Helper.entitlements\"\n\n# Try multiple possible paths (regular build and archive)\nHELPER_BIN=\"\"\n\n# Try regular build path first\nif [ -n \"${TARGET_BUILD_DIR}\" ] && [ -n \"${CONTENTS_FOLDER_PATH}\" ]; then\n    HELPER_BIN=\"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Contents/Resources/paddleocr-cli-dir/paddleocr-cli\"\nfi\n\n# Try archive path if regular path doesn't exist (ARCHIVE_PRODUCTS_PATH may be unset)\nif [ -z \"$HELPER_BIN\" ] || [ ! -f \"$HELPER_BIN\" ]; then\n    if [ -n \"${ARCHIVE_PRODUCTS_PATH:-}\" ] && [ -n \"${PRODUCT_NAME:-}\" ]; then\n        HELPER_BIN=\"${ARCHIVE_PRODUCTS_PATH}/Applications/${PRODUCT_NAME}.app/Contents/Resources/paddleocr-cli-dir/paddleocr-cli\"\n    fi\nfi\n\n# Try alternative build path\nif [ -z \"$HELPER_BIN\" ] || [ ! -f \"$HELPER_BIN\" ]; then\n    if [ -n \"${BUILT_PRODUCTS_DIR}\" ] && [ -n \"${UNLOCALIZED_RESOURCES_FOLDER_PATH}\" ]; then\n        HELPER_BIN=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/paddleocr-cli-dir/paddleocr-cli\"\n    fi\nfi\n\n# Only sign if it exists (important for other configs)\nif [ -f \"$HELPER_BIN\" ]; then\n  echo \"Codesigning helper: $HELPER_BIN\"\n\n  # Use the signing identity Xcode is already using\n  SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY_NAME:-$CODE_SIGN_IDENTITY}\"\n  if [ -z \"$SIGN_IDENTITY\" ] || [ \"$SIGN_IDENTITY\" = \"-\" ]; then\n    SIGN_IDENTITY=\"${CODE_SIGN_IDENTITY}\"\n  fi\n\n  if [ -z \"$SIGN_IDENTITY\" ] || [ \"$SIGN_IDENTITY\" = \"-\" ]; then\n    echo \"warning: No code signing identity set, using ad-hoc signing\"\n    SIGN_IDENTITY=\"-\"\n  fi\n\n  echo \"  Using signing identity: $SIGN_IDENTITY\"\n  echo \"  Entitlements: $ENTITLEMENTS\"\n\n  # Sign the main executable with bundle identifier\n  # Note: We don't use --options runtime because PyInstaller's bootloader\n  # has issues loading Python3 with hardened runtime, even when Python3 is signed\n  # The --identifier is required for sandbox to get bundle identifier\n  /usr/bin/codesign \\\n    --force \\\n    --timestamp=none \\\n    --entitlements \"$ENTITLEMENTS\" \\\n    --identifier \"trabajomofeta.ocr-util.paddleocr-cli\" \\\n    --sign \"$SIGN_IDENTITY\" \\\n    \"$HELPER_BIN\"\n\n  # Verify entitlements were applied\n  echo \"  Verifying entitlements...\"\n  /usr/bin/codesign -d --entitlements - \"$HELPER_BIN\" 2>/dev/null | grep -q \"com.apple.security.app-sandbox\" && echo \"  ✓ Sandbox entitlement verified\" || echo \"  ⚠ Warning: Sandbox entitlement not found\"\n  echo \"✓ Successfully signed paddleocr-cli\"\n\n  # Sign Python3 and other executables in _internal directory\n  INTERNAL_DIR=\"$(dirname \"$HELPER_BIN\")/_internal\"\n  if [ -d \"$INTERNAL_DIR\" ]; then\n    echo \"Signing Python3 and libraries in _internal...\"\n    \n    # Sign Python3 executable\n    PYTHON3=\"$INTERNAL_DIR/Python3\"\n    if [ -f \"$PYTHON3\" ]; then\n      echo \"  Signing Python3...\"\n      /usr/bin/codesign \\\n        --force \\\n        --timestamp=none \\\n        --sign \"$SIGN_IDENTITY\" \\\n        \"$PYTHON3\" 2>/dev/null || echo \"  ⚠ Warning: Failed to sign Python3\"\n    fi\n    \n    # Sign all .dylib files in _internal (they may be unsigned)\n    find \"$INTERNAL_DIR\" -name \"*.dylib\" -type f | while read dylib; do\n      echo \"  Signing $(basename \"$dylib\")...\"\n      /usr/bin/codesign \\\n        --force \\\n        --timestamp=none \\\n        --sign \"$SIGN_IDENTITY\" \\\n        \"$dylib\" 2>/dev/null || true\n    done\n    \n    echo \"✓ Finished signing _internal files\"\n  fi\nelse\n  echo \"Helper binary not found. Tried:\"\n  echo \"  ${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Contents/Resources/paddleocr-cli-dir/paddleocr-cli\"\n  echo \"  ${ARCHIVE_PRODUCTS_PATH}/Applications/${PRODUCT_NAME}.app/Contents/Resources/paddleocr-cli-dir/paddleocr-cli\"\n  echo \"  ${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/paddleocr-cli-dir/paddleocr-cli\"\n  exit 0\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0304F49E2ECE27E30069A53E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		0304F4AB2ECE27E40069A53E /* Debug */ = {
@@ -196,7 +199,7 @@
 				DEVELOPMENT_TEAM = H94QQUBBV8;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -260,7 +263,7 @@
 				DEVELOPMENT_TEAM = H94QQUBBV8;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
