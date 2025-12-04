@@ -16,7 +16,7 @@ struct AboutView: View {
                     .bold()
 
                 Text("App Version: 1.0")
-                Text("Developer: Trabajo Mofeta")
+                Text("Developer: https://github.com/crescit")
 
                 Text("This app provides fast, fully local OCR (text extraction) from user-selected regions of the screen. No data ever leaves your device.")
                     .fixedSize(horizontal: false, vertical: true)

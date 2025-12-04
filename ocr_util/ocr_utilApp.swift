@@ -18,48 +18,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotkeySettingsWindowController: HotkeySettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Menu bar only (no Dock)
-        NSApp.setActivationPolicy(.accessory)
-
         // Ensure logger is initialized so log directory exists early
         DebugLogger.log("📒 ocr_util launched (version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"))")
 
         showFirstRunIntroIfNeeded()
         setupStatusItem()
         setupCapturePipeline()
+        
+        // Delay setting activation policy to allow launch icon to show
+        // Menu bar only (no Dock)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     /// Shows a one-time intro explaining how the tool works and what system
     /// permissions it will request the first time the user draws a bounding box.
     private func showFirstRunIntroIfNeeded() {
         let defaults = UserDefaults.standard
-        let hasShownIntroKey = "ocr_util.hasShownIntro"
+        // Use bundle identifier to ensure dev and distribution builds have separate flags
+        let bundleID = Bundle.main.bundleIdentifier ?? "ocr_util"
+        let hasShownIntroKey = "\(bundleID).hasShownIntro"
 
         guard defaults.bool(forKey: hasShownIntroKey) == false else {
             return
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Welcome to ocr_util"
-        alert.informativeText = """
-        Thank you for installing ocr_util.
-
-        • Use the hot key (⌘⌥/) to start a capture from anywhere.
-        • Draw a bounding box around the text you want to copy and ocr_util will run OCR and put the result on your clipboard.
-        • The first time you capture, macOS will show a Screen Recording dialog that says ocr_util is requesting to bypass the system private window picker and directly access your screen (and possibly audio). This is a system privacy check from Apple.
-
-        ocr_util only uses this permission to read the pixels inside the box you draw so it can extract text. It does not record or save video or audio.
-
-        You can later revoke or change this permission in System Settings → Privacy & Security → Screen Recording.
-        """
+        let introController = IntroWindowController {
+            // On dismiss, mark as shown
+            defaults.set(true, forKey: hasShownIntroKey)
+        }
         
-        alert.addButton(withTitle: "Got it")
-
-        // Run as an app-modal alert since we have no main window.
-        alert.runModal()
-
-        defaults.set(true, forKey: hasShownIntroKey)
+        introController.showModal()
     }
 
     private func setupStatusItem() {
