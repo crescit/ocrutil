@@ -21,35 +21,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Ensure logger is initialized so log directory exists early
         DebugLogger.log("📒 ocr_util launched (version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"))")
 
-        showFirstRunIntroIfNeeded()
+        // Activate the app first to ensure windows can be shown
+        NSApp.activate(ignoringOtherApps: true)
+        
         setupStatusItem()
         setupCapturePipeline()
         
-        // Delay setting activation policy to allow launch icon to show
-        // Menu bar only (no Dock)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            NSApp.setActivationPolicy(.accessory)
+        // Check if we need to show intro window
+        let defaults = UserDefaults.standard
+        let bundleID = Bundle.main.bundleIdentifier ?? "ocr_util"
+        let hasShownIntroKey = "\(bundleID).hasShownIntro"
+        let shouldShowIntro = !defaults.bool(forKey: hasShownIntroKey)
+        
+        if shouldShowIntro {
+            // Show intro window first, then set activation policy after it's dismissed
+            showFirstRunIntroIfNeeded {
+                // After intro is dismissed, set activation policy to menu bar only
+                self.setActivationPolicyToAccessory()
+            }
+        } else {
+            // No intro window needed, set activation policy immediately
+            // Delay slightly to allow launch icon to show
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.setActivationPolicyToAccessory()
+            }
         }
+    }
+    
+    private func setActivationPolicyToAccessory() {
+        // Menu bar only (no Dock)
+        NSApp.setActivationPolicy(.accessory)
     }
 
     /// Shows a one-time intro explaining how the tool works and what system
     /// permissions it will request the first time the user draws a bounding box.
-    private func showFirstRunIntroIfNeeded() {
+    private func showFirstRunIntroIfNeeded(completion: @escaping () -> Void) {
         let defaults = UserDefaults.standard
         // Use bundle identifier to ensure dev and distribution builds have separate flags
         let bundleID = Bundle.main.bundleIdentifier ?? "ocr_util"
         let hasShownIntroKey = "\(bundleID).hasShownIntro"
 
         guard defaults.bool(forKey: hasShownIntroKey) == false else {
+            completion()
             return
         }
 
+        // Ensure app is activated before showing window
+        NSApp.activate(ignoringOtherApps: true)
+        
         let introController = IntroWindowController {
             // On dismiss, mark as shown
             defaults.set(true, forKey: hasShownIntroKey)
+            // Call completion after intro is dismissed
+            completion()
         }
         
-        introController.showModal()
+        // Small delay to ensure app is fully activated
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            introController.showModal()
+        }
     }
 
     private func setupStatusItem() {

@@ -72,8 +72,9 @@ final class IntroWindowController: NSWindowController, NSWindowDelegate {
     
     func showModal() {
         guard let window = window else { return }
+        
+        // Ensure app is activated and frontmost
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
         
         // Create a new view with the dismiss callback
         let introView = IntroView(onDismiss: { [weak self] in
@@ -82,6 +83,14 @@ final class IntroWindowController: NSWindowController, NSWindowDelegate {
         let hostingView = NSHostingView(rootView: introView)
         window.contentView = hostingView
         
+        // Make window key and front, and center it
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        
+        // Bring app to front again after showing window
+        NSApp.activate(ignoringOtherApps: true)
+        
+        // Run modal session
         NSApp.runModal(for: window)
     }
     

@@ -78,3 +78,4 @@ echo "   2. Install PaddleOCR and dependencies in that venv"
 echo "   3. Rebuild with PyInstaller using that venv's Python"
 echo "   4. The new bundle will not include _ssl or _hashlib modules"
 
+
